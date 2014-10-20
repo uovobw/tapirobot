@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/rakyll/globalconf"
+	"github.com/uovobw/tapiro/commands"
 	"github.com/uovobw/tapiro/logger"
 	"github.com/uovobw/tapiro/tumblr"
 	"github.com/uovobw/tapiro/twitter"
@@ -40,6 +41,10 @@ var (
 	loggerConf     = flag.NewFlagSet("logger", flag.ExitOnError)
 	loggerLocation = loggerConf.String("location", "_", "Logfile location")
 	loggerChannel  = loggerConf.String("channel", "_", "Channel for which to log messages")
+
+	commandsConf       = flag.NewFlagSet("commands", flag.ExitOnError)
+	commandsIdentifier = commandsConf.String("identifier", "_", "Command prefix identifier")
+	commandsDb         = commandsConf.String("db", "_", "Db location")
 )
 
 var config globalconf.GlobalConf
@@ -56,6 +61,7 @@ func init() {
 	globalconf.Register("tumblr", tumblrConf)
 	globalconf.Register("twitter", twitterConf)
 	globalconf.Register("logger", loggerConf)
+	globalconf.Register("commands", commandsConf)
 	config.ParseAll()
 }
 
@@ -79,6 +85,8 @@ func main() {
 		log.Println(*twitterOauthSecret)
 		log.Println(*loggerLocation)
 		log.Println(*loggerChannel)
+		log.Println(*commandsDb)
+		log.Println(*commandsIdentifier)
 	}
 
 	bot, err := hbot.NewIrcConnection(fmt.Sprintf("%s:%d", *ircNetwork, *ircPort), *ircNickname, *ircSsl)
@@ -94,15 +102,20 @@ func main() {
 	if err != nil {
 		log.Fatalf("Configuration error: %s", err)
 	}
-	tumblr.Configure(*tumblrAppKey, *tumblrAppSecret, *tumblrOauthToken, *tumblrOauthSecret, *tumblrUrl)
+	err = tumblr.Configure(*tumblrAppKey, *tumblrAppSecret, *tumblrOauthToken, *tumblrOauthSecret, *tumblrUrl)
 	if err != nil {
 		log.Fatalf("Configuration error: %s", err)
 	}
-	logger.Configure(*loggerChannel, *loggerLocation)
+	err = logger.Configure(*loggerChannel, *loggerLocation)
+	if err != nil {
+		log.Fatalf("Configuration error: %s", err)
+	}
+	err = commands.Configure(*commandsIdentifier, *commandsDb, *ircNickname, bot)
 	if err != nil {
 		log.Fatalf("Configuration error: %s", err)
 	}
 
+	bot.AddTrigger(commands.GetTrigger())
 	bot.AddTrigger(twitter.GetTrigger())
 	bot.AddTrigger(tumblr.GetTrigger())
 	bot.AddTrigger(logger.GetTrigger())
