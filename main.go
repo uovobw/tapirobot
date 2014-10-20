@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/rakyll/globalconf"
+	"github.com/uovobw/tapiro/logger"
 	"github.com/uovobw/tapiro/tumblr"
 	"github.com/uovobw/tapiro/twitter"
 	"github.com/whyrusleeping/hellabot"
@@ -35,6 +36,10 @@ var (
 	twitterAppSecret   = twitterConf.String("appsecret", "_", "Twitter Application Secret")
 	twitterOauthToken  = twitterConf.String("oauthtoken", "_", "Twitter OAuth Token")
 	twitterOauthSecret = twitterConf.String("oauthsecret", "_", "Twitter OAuth Token Secret")
+
+	loggerConf     = flag.NewFlagSet("logger", flag.ExitOnError)
+	loggerLocation = loggerConf.String("location", "_", "Logfile location")
+	loggerChannel  = loggerConf.String("channel", "_", "Channel for which to log messages")
 )
 
 var config globalconf.GlobalConf
@@ -50,6 +55,7 @@ func init() {
 	}
 	globalconf.Register("tumblr", tumblrConf)
 	globalconf.Register("twitter", twitterConf)
+	globalconf.Register("logger", loggerConf)
 	config.ParseAll()
 }
 
@@ -71,6 +77,8 @@ func main() {
 		log.Println(*twitterAppSecret)
 		log.Println(*twitterOauthToken)
 		log.Println(*twitterOauthSecret)
+		log.Println(*loggerLocation)
+		log.Println(*loggerChannel)
 	}
 
 	bot, err := hbot.NewIrcConnection(fmt.Sprintf("%s:%d", *ircNetwork, *ircPort), *ircNickname, *ircSsl)
@@ -82,11 +90,22 @@ func main() {
 	}
 
 	// Configure plugins
-	twitter.Configure(*twitterAppKey, *twitterAppSecret, *twitterOauthToken, *twitterOauthSecret)
+	err = twitter.Configure(*twitterAppKey, *twitterAppSecret, *twitterOauthToken, *twitterOauthSecret)
+	if err != nil {
+		log.Fatalf("Configuration error: %s", err)
+	}
 	tumblr.Configure(*tumblrAppKey, *tumblrAppSecret, *tumblrOauthToken, *tumblrOauthSecret, *tumblrUrl)
+	if err != nil {
+		log.Fatalf("Configuration error: %s", err)
+	}
+	logger.Configure(*loggerChannel, *loggerLocation)
+	if err != nil {
+		log.Fatalf("Configuration error: %s", err)
+	}
 
 	bot.AddTrigger(twitter.GetTrigger())
 	bot.AddTrigger(tumblr.GetTrigger())
+	bot.AddTrigger(logger.GetTrigger())
 
 	bot.Start()
 
