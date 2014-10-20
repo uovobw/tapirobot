@@ -15,6 +15,7 @@ type Commands struct {
 	Identifier string
 	commands   map[string]interface{}
 	db         *gorm.DB
+	self       string
 }
 
 var (
@@ -26,6 +27,8 @@ func init() {
 	c.commands = map[string]interface{}{
 		"help": help,
 		"seen": lastSeen,
+		"tell": tell,
+		"ack":  ack,
 	}
 }
 
@@ -35,13 +38,52 @@ type LastSeen struct {
 	Seen time.Time
 }
 
+type TellMessage struct {
+	Id          int64
+	Sender      string
+	Destination string
+	Message     string
+	Channel     string
+}
+
+func ack(irc *hbot.IrcCon, msg *hbot.Message) bool {
+	c.db.Where("destination like ?", msg.Name).Delete(TellMessage{})
+	irc.Channels[msg.To].Say(fmt.Sprintf("Ok %s all your pending messages deleted", msg.Name))
+	return true
+}
+
+func tell(irc *hbot.IrcCon, msg *hbot.Message) bool {
+	splitted := strings.SplitN(msg.Content, " ", 3)
+	if len(splitted) == 3 {
+		tm := TellMessage{
+			Destination: splitted[1],
+			Message:     splitted[2],
+			Sender:      msg.Name,
+			Channel:     msg.To,
+		}
+		c.db.Save(&tm)
+	} else {
+		irc.Channels[msg.To].Say(fmt.Sprintf("Command TELL: %stell <nickname> <message>", c.Identifier))
+	}
+	return true
+}
+
 func lastSeen(irc *hbot.IrcCon, msg *hbot.Message) bool {
 	log.Printf("Running lastSeen command")
 	const layout = "Jan 2, 2006 at 3:04pm (MST)"
-	nick := strings.Fields(msg.Content)[1]
+	fields := strings.Fields(msg.Content)
+	if len(fields) < 2 {
+		irc.Channels[msg.To].Say(fmt.Sprintf("Command TELL: %sseen <nickname>", c.Identifier))
+		return true
+	}
+	nick := fields[1]
 	seen := LastSeen{}
 	c.db.Where("nick = ?", nick).First(&seen)
-	irc.Channels[msg.To].Say(fmt.Sprintf("Last seen %s at %s", nick, seen.Seen.Format(layout)))
+	if seen.Id == 0 {
+		irc.Channels[msg.To].Say(fmt.Sprintf("Never seen %s, sorry", nick))
+	} else {
+		irc.Channels[msg.To].Say(fmt.Sprintf("Last seen %s at %s", nick, seen.Seen.Format(layout)))
+	}
 	return true
 }
 
@@ -57,6 +99,7 @@ func help(irc *hbot.IrcCon, msg *hbot.Message) bool {
 
 func Configure(identifier string, dblocation string, self string, bot *hbot.IrcCon) (err error) {
 	c.Identifier = identifier
+	c.self = self
 	log.Printf("Command module running with command identifier %s", identifier)
 	db, err := gorm.Open("sqlite3", dblocation)
 	if err != nil {
@@ -64,27 +107,53 @@ func Configure(identifier string, dblocation string, self string, bot *hbot.IrcC
 	}
 	c.db = &db
 	c.db.AutoMigrate(&LastSeen{})
+	c.db.AutoMigrate(&TellMessage{})
 	lastSeenTrigger := &hbot.Trigger{
 		func(mes *hbot.Message) bool {
-			if mes.From != self && mes.Command == "PRIVMSG" {
+			if mes.Name != self && mes.Command == "PRIVMSG" {
 				return true
 			}
 			return false
 		},
 		func(irc *hbot.IrcCon, mes *hbot.Message) bool {
 			lastseen := LastSeen{}
-			err := c.db.Where("nick = ?", mes.From).Find(&lastseen).Error
+			err := c.db.Where("nick = ?", mes.Name).Find(&lastseen).Error
 			if err != nil {
-				log.Printf("Cannot find last seen for user %s: %s", mes.From, err)
+				log.Printf("Cannot find last seen for user %s: %s", mes.Name, err)
 			}
 			if lastseen.Nick == "" {
-				lastseen.Nick = mes.From
+				lastseen.Nick = mes.Name
 			}
 			lastseen.Seen = time.Now()
 			c.db.Save(&lastseen)
 			return false
 		},
 	}
+	tellTrigger := &hbot.Trigger{
+		func(mes *hbot.Message) bool {
+			if mes.Command == "JOIN" {
+				if mes.Name != c.self {
+					return true
+				}
+			}
+			return false
+		},
+		func(irc *hbot.IrcCon, mes *hbot.Message) bool {
+			rows, err := c.db.Model(TellMessage{}).Where("destination = ?", mes.Name).Select("sender, message, channel").Rows()
+			if err != nil {
+				log.Println("ERROR in tell message: %s", err)
+			}
+			defer rows.Close()
+			var message, channel, from string
+			for rows.Next() {
+				rows.Scan(&from, &message, &channel)
+				irc.Channels[channel].Say(fmt.Sprintf("Hey %s! %s told me to tell you: \"%s\"", mes.Name, from, message))
+			}
+			irc.Channels[channel].Say("Use !ack to acnowledge all messages or i will repeat them each time you log in")
+			return true
+		},
+	}
+	bot.AddTrigger(tellTrigger)
 	bot.AddTrigger(lastSeenTrigger)
 	return nil
 }
