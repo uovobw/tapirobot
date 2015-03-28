@@ -62,6 +62,7 @@ func tell(irc *hbot.IrcCon, msg *hbot.Message) bool {
 			Channel:     msg.To,
 		}
 		c.db.Save(&tm)
+		irc.Channels[msg.To].Say("Message saved")
 	} else {
 		irc.Channels[msg.To].Say(fmt.Sprintf("Command TELL: %stell <nickname> <message>", c.Identifier))
 	}
@@ -162,7 +163,7 @@ func GetTrigger() *hbot.Trigger {
 	trigger := &hbot.Trigger{
 		func(mes *hbot.Message) bool {
 			if mes.Command == "PRIVMSG" {
-				if string(mes.Content[0]) == c.Identifier {
+				if mes.Content != "" && string(mes.Content[0]) == c.Identifier {
 					return true
 				}
 			}
