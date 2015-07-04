@@ -5,10 +5,15 @@ import (
 	"log"
 	"strings"
 	"time"
+	"flag"
+	"net/http"
 
 	"github.com/jinzhu/gorm"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/whyrusleeping/hellabot"
+
+	"code.google.com/p/google-api-go-client/googleapi/transport"
+	"code.google.com/p/google-api-go-client/youtube/v3"
 )
 
 type Commands struct {
@@ -22,6 +27,8 @@ var (
 	c Commands
 )
 
+const ytApiKey = "DEVELOPER KEY HERE"
+
 func init() {
 	c = Commands{}
 	c.commands = map[string]interface{}{
@@ -29,6 +36,7 @@ func init() {
 		"seen": lastSeen,
 		"tell": tell,
 		"ack":  ack,
+		"yt": yt,
 	}
 }
 
@@ -84,6 +92,49 @@ func lastSeen(irc *hbot.IrcCon, msg *hbot.Message) bool {
 		irc.Channels[msg.To].Say(fmt.Sprintf("Never seen %s, sorry", nick))
 	} else {
 		irc.Channels[msg.To].Say(fmt.Sprintf("Last seen %s at %s", nick, seen.Seen.Format(layout)))
+	}
+	return true
+}
+
+func yt(irc *hbot.IrcCon, msg *hbot.Message) bool {
+	log.Printf("Running yt command")
+	splitted := strings.SplitN(msg.Content, " ", 2)
+	if len(splitted) < 2 {
+		irc.Channels[msg.To].Say(fmt.Sprintf("Youtube search: %syt <query>", c.Identifier))
+		return true
+	} else {
+		var query = flag.String("query", splitted[1], "Query string")
+		var maxResults = flag.Int64("max-results", 1, "Max results")
+		flag.Parse()
+		client := &http.Client{ Transport: &transport.APIKey{Key: ytApiKey}, }
+		service, err := youtube.New(client)
+		if err != nil { log.Printff("Error creating new YouTube client: %v", err); return true }
+
+		// API call
+		call := service.Search.List("id,snippet").
+				Q(*query).
+				MaxResults(*maxResults)
+		response, err := call.Do()
+		if err != nil { log.Printf("Error making search API call: %v", err); return true }
+
+		// Parse response
+		var found bool = false
+		for _, item := range response.Items {
+			if item.Id.Kind == "youtube#video" {
+				var returnMsg string = item.Snippet.Title + " - https://youtu.be/" + item.Id.VideoId
+				found = true
+				log.Printf(returnMsg)
+				continue
+			}
+		}
+
+		// Send to chat
+		if !found {
+			irc.Channels[msg.To].Say(fmt.Sprintf("No videos found!"))
+			return true
+		} else {
+			irc.Channels[msg.To].Say(fmt.Sprintf("[YouTube] %s", returnMsg))
+		}
 	}
 	return true
 }
