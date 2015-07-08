@@ -26,6 +26,7 @@ type Commands struct {
 
 var (
 	c Commands
+	ytservice *youtube.Service
 )
 
 func init() {
@@ -156,7 +157,7 @@ func Configure(identifier string, dblocation string, ytapikey string, self strin
 	c.db.AutoMigrate(&TellMessage{})
 	c.ytapikey = ytapikey
 	ytclient := &http.Client{ Transport: &transport.APIKey{Key: c.ytapikey}, }
-	ytservice, err := youtube.New(ytclient)
+	ytservice, err = youtube.New(ytclient)
 	if err != nil {
 		return err
 	}
