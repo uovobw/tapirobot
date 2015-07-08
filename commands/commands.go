@@ -97,10 +97,10 @@ func lastSeen(irc *hbot.IrcCon, msg *hbot.Message) bool {
 }
 
 func youtube(irc *hbot.IrcCon, msg *hbot.Message) bool {
-	log.Printf("Running yt command")
+	log.Printf("Running youtube command")
 	splitted := strings.SplitN(msg.Content, " ", 2)
 	if len(splitted) < 2 {
-		irc.Channels[msg.To].Say(fmt.Sprintf("Youtube search: %syt <query>", c.Identifier))
+		irc.Channels[msg.To].Say(fmt.Sprintf("Youtube search: %syoutube <query>", c.Identifier))
 		return true
 	} else {
 		var query = flag.String("query", splitted[1], "Query string")
