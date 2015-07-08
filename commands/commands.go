@@ -21,13 +21,12 @@ type Commands struct {
 	commands   map[string]interface{}
 	db         *gorm.DB
 	self       string
+	ytapikey   string
 }
 
 var (
 	c Commands
 )
-
-const ytApiKey = "DEVELOPER KEY HERE"
 
 func init() {
 	c = Commands{}
@@ -36,7 +35,7 @@ func init() {
 		"seen": lastSeen,
 		"tell": tell,
 		"ack":  ack,
-		"yt": yt,
+		"youtube": youtube,
 	}
 }
 
@@ -96,7 +95,7 @@ func lastSeen(irc *hbot.IrcCon, msg *hbot.Message) bool {
 	return true
 }
 
-func yt(irc *hbot.IrcCon, msg *hbot.Message) bool {
+func youtube(irc *hbot.IrcCon, msg *hbot.Message) bool {
 	log.Printf("Running yt command")
 	splitted := strings.SplitN(msg.Content, " ", 2)
 	if len(splitted) < 2 {
@@ -106,12 +105,9 @@ func yt(irc *hbot.IrcCon, msg *hbot.Message) bool {
 		var query = flag.String("query", splitted[1], "Query string")
 		var maxResults = flag.Int64("max-results", 1, "Max results")
 		flag.Parse()
-		client := &http.Client{ Transport: &transport.APIKey{Key: ytApiKey}, }
-		service, err := youtube.New(client)
-		if err != nil { log.Printff("Error creating new YouTube client: %v", err); return true }
 
 		// API call
-		call := service.Search.List("id,snippet").
+		call := ytservice.Search.List("id,snippet").
 				Q(*query).
 				MaxResults(*maxResults)
 		response, err := call.Do()
@@ -124,16 +120,14 @@ func yt(irc *hbot.IrcCon, msg *hbot.Message) bool {
 				var returnMsg string = item.Snippet.Title + " - https://youtu.be/" + item.Id.VideoId
 				found = true
 				log.Printf(returnMsg)
+				irc.Channels[msg.To].Say(fmt.Sprintf("[YouTube] %s", returnMsg))
 				continue
 			}
 		}
 
-		// Send to chat
 		if !found {
 			irc.Channels[msg.To].Say(fmt.Sprintf("No videos found!"))
 			return true
-		} else {
-			irc.Channels[msg.To].Say(fmt.Sprintf("[YouTube] %s", returnMsg))
 		}
 	}
 	return true
@@ -149,7 +143,7 @@ func help(irc *hbot.IrcCon, msg *hbot.Message) bool {
 	return true
 }
 
-func Configure(identifier string, dblocation string, self string, bot *hbot.IrcCon) (err error) {
+func Configure(identifier string, dblocation string, ytapikey string, self string, bot *hbot.IrcCon) (err error) {
 	c.Identifier = identifier
 	c.self = self
 	log.Printf("Command module running with command identifier %s", identifier)
@@ -160,6 +154,12 @@ func Configure(identifier string, dblocation string, self string, bot *hbot.IrcC
 	c.db = &db
 	c.db.AutoMigrate(&LastSeen{})
 	c.db.AutoMigrate(&TellMessage{})
+	c.ytapikey = ytapikey
+	ytclient := &http.Client{ Transport: &transport.APIKey{Key: c.ytapikey}, }
+	ytservice, err := youtube.New(ytclient)
+	if err != nil {
+		return err
+	}
 	lastSeenTrigger := &hbot.Trigger{
 		func(mes *hbot.Message) bool {
 			if mes.Name != self && mes.Command == "PRIVMSG" {
