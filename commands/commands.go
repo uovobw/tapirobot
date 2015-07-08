@@ -5,10 +5,15 @@ import (
 	"log"
 	"strings"
 	"time"
+	"flag"
+	"net/http"
 
 	"github.com/jinzhu/gorm"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/whyrusleeping/hellabot"
+
+	"code.google.com/p/google-api-go-client/googleapi/transport"
+	"code.google.com/p/google-api-go-client/youtube/v3"
 )
 
 type Commands struct {
@@ -16,10 +21,12 @@ type Commands struct {
 	commands   map[string]interface{}
 	db         *gorm.DB
 	self       string
+	ytapikey   string
 }
 
 var (
 	c Commands
+	ytservice *youtube.Service
 )
 
 func init() {
@@ -29,6 +36,7 @@ func init() {
 		"seen": lastSeen,
 		"tell": tell,
 		"ack":  ack,
+		"youtube": youtube,
 	}
 }
 
@@ -88,6 +96,44 @@ func lastSeen(irc *hbot.IrcCon, msg *hbot.Message) bool {
 	return true
 }
 
+func youtube(irc *hbot.IrcCon, msg *hbot.Message) bool {
+	log.Printf("Running youtube command")
+	splitted := strings.SplitN(msg.Content, " ", 2)
+	if len(splitted) < 2 {
+		irc.Channels[msg.To].Say(fmt.Sprintf("Youtube search: %syoutube <query>", c.Identifier))
+		return true
+	} else {
+		var query = flag.String("query", splitted[1], "Query string")
+		var maxResults = flag.Int64("max-results", 1, "Max results")
+		flag.Parse()
+
+		// API call
+		call := ytservice.Search.List("id,snippet").
+				Q(*query).
+				MaxResults(*maxResults)
+		response, err := call.Do()
+		if err != nil { log.Printf("Error making search API call: %v", err); return true }
+
+		// Parse response
+		var found bool = false
+		for _, item := range response.Items {
+			if item.Id.Kind == "youtube#video" {
+				var returnMsg string = item.Snippet.Title + " - https://youtu.be/" + item.Id.VideoId
+				found = true
+				log.Printf(returnMsg)
+				irc.Channels[msg.To].Say(fmt.Sprintf("[YouTube] %s", returnMsg))
+				continue
+			}
+		}
+
+		if !found {
+			irc.Channels[msg.To].Say(fmt.Sprintf("No videos found!"))
+			return true
+		}
+	}
+	return true
+}
+
 func help(irc *hbot.IrcCon, msg *hbot.Message) bool {
 	log.Printf("Running help command")
 	keys := []string{}
@@ -98,7 +144,7 @@ func help(irc *hbot.IrcCon, msg *hbot.Message) bool {
 	return true
 }
 
-func Configure(identifier string, dblocation string, self string, bot *hbot.IrcCon) (err error) {
+func Configure(identifier string, dblocation string, ytapikey string, self string, bot *hbot.IrcCon) (err error) {
 	c.Identifier = identifier
 	c.self = self
 	log.Printf("Command module running with command identifier %s", identifier)
@@ -109,6 +155,12 @@ func Configure(identifier string, dblocation string, self string, bot *hbot.IrcC
 	c.db = &db
 	c.db.AutoMigrate(&LastSeen{})
 	c.db.AutoMigrate(&TellMessage{})
+	c.ytapikey = ytapikey
+	ytclient := &http.Client{ Transport: &transport.APIKey{Key: c.ytapikey}, }
+	ytservice, err = youtube.New(ytclient)
+	if err != nil {
+		return err
+	}
 	lastSeenTrigger := &hbot.Trigger{
 		func(mes *hbot.Message) bool {
 			if mes.Name != self && mes.Command == "PRIVMSG" {

@@ -45,6 +45,7 @@ var (
 	commandsConf       = flag.NewFlagSet("commands", flag.ExitOnError)
 	commandsIdentifier = commandsConf.String("identifier", "_", "Command prefix identifier")
 	commandsDb         = commandsConf.String("db", "_", "Db location")
+	commandsYtapikey   = commandsConf.String("ytapikey", "_", "Youtube developer API key")
 )
 
 var config globalconf.GlobalConf
@@ -110,7 +111,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Configuration error: %s", err)
 	}
-	err = commands.Configure(*commandsIdentifier, *commandsDb, *ircNickname, bot)
+	err = commands.Configure(*commandsIdentifier, *commandsDb, *commandsYtapikey, *ircNickname, bot)
 	if err != nil {
 		log.Fatalf("Configuration error: %s", err)
 	}
